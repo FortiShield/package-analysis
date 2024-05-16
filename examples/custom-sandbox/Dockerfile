@@ -1,6 +1,6 @@
 # Example dockerfile for testing an alternative ecosystem version (PHP v7.4)
 
-FROM php:7.4-zts-bullseye@sha256:c893c950b87f910684476db57b63094e27313135bdd3a7eb8d54c44c7b3a89b0 AS image
+FROM php:7.4-zts-bullseye@sha256:a6d14c89da749f4a316846a97174c48304e605298a5fcf93d53bfbaa58b1fb04 AS image
 
 # Install Composer
 RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \

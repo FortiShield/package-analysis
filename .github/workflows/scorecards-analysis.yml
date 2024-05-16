@@ -36,7 +36,7 @@ jobs:
           results_format: sarif
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           # Publish the results for public repositories to enable scorecard badges. For more details, see
-          # https://github.com/khulnasoft-lab/scorecard-action#publishing-results. 
+          # https://github.com/ossf/scorecard-action#publishing-results. 
           # For private repositories, `publish_results` will automatically be set to `false`, regardless 
           # of the value entered here.
           publish_results: true

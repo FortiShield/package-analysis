@@ -5,7 +5,7 @@ metadata:
   labels:
     app: workers
 spec:
-  replicas: 1500
+  replicas: 200
   selector:
     matchLabels:
       app: workers
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: ghcr.io/khulnasoft-lab/analysis:latest
+        image: gcr.io/ossf/analysis:latest
         imagePullPolicy: Always
         command: ["worker"]
         env:
@@ -25,20 +25,24 @@ spec:
           value: gcppubsub://projects/ossf-malware-analysis/subscriptions/workers?nacklazy=1
         - name: OSSF_MALWARE_ANALYSIS_RESULTS
           value: gs://ossf-malware-analysis-results
-        - name: OSSF_MALWARE_STATIC_ANALYSIS_RESULTS
-          value: gs://ossf-malware-static-analysis-results
+        - name: OSSF_MALWARE_ANALYSIS_EXECUTION_LOGS
+          value: gs://ossf-malware-analysis-execution-logs
         - name: OSSF_MALWARE_ANALYSIS_FILE_WRITE_RESULTS
           value: gs://ossf-malware-analysis-file-write-results
-        # - name: OSSF_MALWARE_ANALYZED_PACKAGES
-          # value: gs://ossf-malware-analysis-analyzed-packages
+        - name: OSSF_MALWARE_STATIC_ANALYSIS_RESULTS
+          value: gs://ossf-malware-static-analysis-results-v1
+        - name: OSSF_MALWARE_ANALYZED_PACKAGES
+          value: gs://ossf-malware-analysis-analyzed-packages
         - name: LOGGER_ENV
           value: prod
         - name: OSSF_MALWARE_ANALYSIS_PACKAGES
           value: gs://ossf-malware-analysis-packages
         - name: OSSF_MALWARE_NOTIFICATION_TOPIC
           value: gcppubsub://projects/ossf-malware-analysis/topics/analysis-notify
+        - name: OSSF_MALWARE_USER_AGENT_EXTRA
+          value: "production"
         - name: OSSF_MALWARE_FEATURE_FLAGS
-          value: ""
+          value: "CodeExecution"
         securityContext:
           privileged: true
         volumeMounts:

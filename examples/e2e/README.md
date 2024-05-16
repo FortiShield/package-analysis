@@ -91,7 +91,7 @@ To build the analysis and scheduler images yourself for the docker-compose, you 
 make build_analysis_image build_scheduler_image
 
 # In package-feeds
-docker build . -t ghcr.io/khulnasoft-lab/scheduled-feeds:latest
+docker build . -t gcr.io/ossf/scheduled-feeds:latest
 ```
 
 Note, however, this does not use locally built sandbox images for analysis. To use entirely locally

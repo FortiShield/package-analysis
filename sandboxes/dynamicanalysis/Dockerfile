@@ -5,7 +5,7 @@
 # NO_PUBKEY B53DC80D13EDEF05 [kubectl]
 
 # buildpack-deps 22.04 [ubuntu]
-FROM buildpack-deps@sha256:9e3ce7993b8428dda197c7ec530e18061f6accd7b86d4f52388bbfe42c5e4647 AS image
+FROM buildpack-deps@sha256:d76488a56e1e85930e053b794daa9f990636565bf0de54903d65d93c43c3cad5 AS image
 
 # All intermediate files during first-stage build are stored under /setup
 # This directory is removed before second-stage build (i.e. copying runtime files to an empty image)
@@ -16,12 +16,14 @@ ENV DEBIAN_FRONTEND noninteractive
 # Silence 'debconf: delaying package configuation, since apt-utils is not installed' warning
 # as it related to interactive configuration anyway
 ENV DEBCONF_NOWARNINGS="yes"
+# Define the version of Kubernetes to use.
+ENV K8S_VERSION="v1.29"
 # Define the major version of Node.js to use.
 ENV NODE_MAJOR=18
 
 # setup repo for kubectl
-RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/kubernetes-archive-keyring.gpg && \
-	echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+RUN curl -fsSL "https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/deb/Release.key" | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/${K8S_VERSION}/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
 
 # install repo for nodejs
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/nodesource.gpg && \
@@ -39,6 +41,7 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-reco
 	build-essential \
 	cmake \
 	clang \
+	dnsutils \
 	golang \
 	iproute2 \
 	iputils-ping \
@@ -46,24 +49,30 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-reco
 	libpng-dev \
 	libzip-dev \
 	net-tools \
+	netcat \
 	powershell \
 	protobuf-compiler \
+	python2 \
 	sshpass \
 	sudo \
 	tcpdump \
 	telnet \
 	tshark \
 	software-properties-common \
+	xxd \
 	zip
 
 # Configure sudo for passwordless execution
 RUN echo "ALL ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+# Create ssh directory for root
+RUN mkdir -m 0700 /root/.ssh
+
 #
 # PHP setup
 #
 WORKDIR /setup/php
-RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
 	php \
 	php-zip \
 	php-gd
@@ -80,7 +89,8 @@ RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" &&
 #
 # Installs node and npm via the nodejs package, pulled from nodesource.com configured above.
 WORKDIR /setup/node
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	nodejs
 
 COPY bowerrc /app/.bowerrc
 
@@ -89,8 +99,9 @@ COPY bowerrc /app/.bowerrc
 # Python setup
 #
 WORKDIR /setup/python
-RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
 	python3 \
+	python3-dev \
 	python3-pip
 
 # Some Python packages expect certain dependencies to already be installed
@@ -102,7 +113,7 @@ RUN pip install --require-hashes --requirement pypi-packages.txt
 # Rubygems setup
 #
 WORKDIR /setup/ruby
-RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
 	ruby \
 	ruby-rubygems
 
@@ -110,7 +121,7 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-reco
 # Rust setup
 #
 WORKDIR /setup/rust
-RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
 	rust-all
 
 

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 
@@ -18,48 +20,61 @@ import (
 	"github.com/khulnasoft-lab/package-analysis/internal/resultstore"
 	"github.com/khulnasoft-lab/package-analysis/internal/sandbox"
 	"github.com/khulnasoft-lab/package-analysis/internal/staticanalysis"
+	"github.com/khulnasoft-lab/package-analysis/internal/useragent"
 	"github.com/khulnasoft-lab/package-analysis/internal/utils"
 	"github.com/khulnasoft-lab/package-analysis/internal/worker"
 	"github.com/khulnasoft-lab/package-analysis/pkg/api/pkgecosystem"
 )
 
 var (
-	pkgName             = flag.String("package", "", "package name")
-	localPkg            = flag.String("local", "", "local package path")
-	ecosystem           pkgecosystem.Ecosystem
-	version             = flag.String("version", "", "version")
-	noPull              = flag.Bool("nopull", false, "disables pulling down sandbox images")
-	imageTag            = flag.String("image-tag", "", "set image tag for analysis sandboxes")
-	dynamicUpload       = flag.String("upload", "", "bucket path for uploading dynamic analysis results")
-	staticUpload        = flag.String("upload-static", "", "bucket path for uploading static analysis results")
-	uploadFileWriteInfo = flag.String("upload-file-write-info", "", "bucket path for uploading information from file writes")
-	uploadAnalyzedPkg   = flag.String("upload-analyzed-pkg", "", "bucket path for uploading analyzed packages")
-	offline             = flag.Bool("offline", false, "disables sandbox network access")
-	customSandbox       = flag.String("sandbox-image", "", "override default dynamic analysis sandbox with custom image")
-	customAnalysisCmd   = flag.String("analysis-command", "", "override default dynamic analysis script path (use with custom sandbox image)")
-	listModes           = flag.Bool("list-modes", false, "prints out a list of available analysis modes")
-	features            = flag.String("features", "", "override features that are enabled/disabled by default")
-	listFeatures        = flag.Bool("list-features", false, "list available features that can be toggled")
-	help                = flag.Bool("help", false, "print help on available options")
-	analysisMode        = utils.CommaSeparatedFlags("mode", []string{"static", "dynamic"},
+	pkgName            = flag.String("package", "", "package name")
+	localPkg           = flag.String("local", "", "local package path")
+	ecosystem          pkgecosystem.Ecosystem
+	version            = flag.String("version", "", "version")
+	noPull             = flag.Bool("nopull", false, "disables pulling down sandbox images")
+	imageTag           = flag.String("image-tag", "", "set image tag for analysis sandboxes")
+	dynamicBucket      = flag.String("dynamic-bucket", "", "bucket path for uploading dynamic analysis results")
+	staticBucket       = flag.String("static-bucket", "", "bucket path for uploading static analysis results")
+	executionLogBucket = flag.String("execution-log-bucket", "", "bucket path for uploading execution log (dynamic analysis)")
+	fileWritesBucket   = flag.String("file-writes-bucket", "", "bucket path for uploading file writes data (dynamic analysis)")
+	analyzedPkgBucket  = flag.String("analyzed-pkg-bucket", "", "bucket path for uploading analyzed packages")
+	offline            = flag.Bool("offline", false, "disables sandbox network access")
+	customSandbox      = flag.String("sandbox-image", "", "override default dynamic analysis sandbox with custom image")
+	customAnalysisCmd  = flag.String("analysis-command", "", "override default dynamic analysis script path (use with custom sandbox image)")
+	listModes          = flag.Bool("list-modes", false, "prints out a list of available analysis modes")
+	features           = flag.String("features", "", "override features that are enabled/disabled by default")
+	listFeatures       = flag.Bool("list-features", false, "list available features that can be toggled")
+	help               = flag.Bool("help", false, "print help on available options")
+	analysisMode       = utils.CommaSeparatedFlags("mode", []string{"static", "dynamic"},
 		"list of analysis modes to run, separated by commas. Use -list-modes to see available options")
 )
+
+// usageError wraps an error, to signal that the error arises from incorrect user input.
+type usageError struct {
+	error
+}
+
+func usagef(format string, args ...any) error {
+	return usageError{fmt.Errorf(format, args...)}
+}
 
 func makeResultStores() worker.ResultStores {
 	rs := worker.ResultStores{}
 
-	if *dynamicUpload != "" {
-		rs.DynamicAnalysis = resultstore.New(*dynamicUpload)
+	if *analyzedPkgBucket != "" {
+		rs.AnalyzedPackage = resultstore.New(*analyzedPkgBucket)
 	}
-	if *staticUpload != "" {
-		rs.StaticAnalysis = resultstore.New(*staticUpload)
+	if *dynamicBucket != "" {
+		rs.DynamicAnalysis = resultstore.New(*dynamicBucket)
 	}
-	if *uploadFileWriteInfo != "" {
-		rs.FileWrites = resultstore.New(*uploadFileWriteInfo)
+	if *executionLogBucket != "" {
+		rs.ExecutionLog = resultstore.New(*executionLogBucket)
 	}
-
-	if *uploadAnalyzedPkg != "" {
-		rs.AnalyzedPackage = resultstore.New(*uploadAnalyzedPkg)
+	if *fileWritesBucket != "" {
+		rs.FileWrites = resultstore.New(*fileWritesBucket)
+	}
+	if *staticBucket != "" {
+		rs.StaticAnalysis = resultstore.New(*staticBucket)
 	}
 
 	return rs
@@ -117,7 +132,7 @@ func makeSandboxOptions() []sandbox.Option {
 
 func dynamicAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, resultStores *worker.ResultStores) {
 	if !*offline {
-		sandbox.InitNetwork()
+		sandbox.InitNetwork(ctx)
 	}
 
 	sbOpts := append(worker.DynamicSandboxOptions(), makeSandboxOptions()...)
@@ -139,14 +154,14 @@ func dynamicAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, resultStores *wor
 			"status", string(result.LastStatus))
 	}
 
-	if err := worker.SaveDynamicAnalysisData(ctx, pkg, resultStores, result.AnalysisData); err != nil {
+	if err := worker.SaveDynamicAnalysisData(ctx, pkg, resultStores, result.Data); err != nil {
 		slog.ErrorContext(ctx, "Upload error", "error", err)
 	}
 }
 
 func staticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, resultStores *worker.ResultStores) {
 	if !*offline {
-		sandbox.InitNetwork()
+		sandbox.InitNetwork(ctx)
 	}
 
 	sbOpts := append(worker.StaticSandboxOptions(), makeSandboxOptions()...)
@@ -164,71 +179,82 @@ func staticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, resultStores *work
 	}
 }
 
-func main() {
+func run() error {
 	log.Initialize(os.Getenv("LOGGER_ENV"))
 
-	flag.TextVar(&ecosystem, "ecosystem", pkgecosystem.None, fmt.Sprintf("package ecosystem. Can be %s", pkgecosystem.SupportedEcosystemsStrings))
+	flag.TextVar(&ecosystem, "ecosystem", pkgecosystem.None, "package ecosystem. Available: "+
+		strings.Join(pkgecosystem.SupportedEcosystemsStrings, ", "))
 
 	analysisMode.InitFlag()
 	flag.Parse()
 
+	http.DefaultTransport = useragent.DefaultRoundTripper(http.DefaultTransport, "")
+
 	if err := featureflags.Update(*features); err != nil {
-		slog.Error("Failed to parse flags", "error", err)
-		return
+		return usageError{err}
 	}
 
 	if *help {
 		flag.Usage()
-		return
+		return nil
 	}
 
 	if *listModes {
 		printAnalysisModes()
-		return
+		return nil
 	}
 
 	if *listFeatures {
 		printFeatureFlags()
-		return
+		return nil
 	}
 
 	if ecosystem == pkgecosystem.None {
 		flag.Usage()
-		return
+		return usagef("missing ecosystem")
 	}
-	ctx := log.ContextWithAttrs(context.Background(), slog.Any("ecosystem", ecosystem))
 
 	manager := pkgmanager.Manager(ecosystem)
 	if manager == nil {
-		slog.ErrorContext(ctx, "Unsupported pkg manager")
-		os.Exit(1)
+		return usagef("unsupported package ecosystem %q", ecosystem)
 	}
 
 	if *pkgName == "" {
 		flag.Usage()
-		return
+		return usagef("missing package name")
 	}
-	ctx = log.ContextWithAttrs(ctx, slog.String("name", *pkgName), slog.String("version", *version))
 
 	runMode := make(map[analysis.Mode]bool)
 	for _, analysisName := range analysisMode.Values {
 		mode, ok := analysis.ModeFromString(strings.ToLower(analysisName))
 		if !ok {
-			slog.ErrorContext(ctx, "Unknown analysis mode: "+analysisName)
 			printAnalysisModes()
-			return
+			return usagef("unknown analysis mode %q", analysisName)
 		}
 		runMode[mode] = true
 	}
 
-	slog.InfoContext(ctx, "Processing package", "package_path", *localPkg)
+	ctx := log.ContextWithAttrs(context.Background(),
+		slog.Any("ecosystem", ecosystem),
+	)
+
+	slog.InfoContext(ctx, "Got request",
+		slog.String("requested_name", *pkgName),
+		slog.String("requested_version", *version),
+	)
 
 	pkg, err := worker.ResolvePkg(manager, *pkgName, *version, *localPkg)
 	if err != nil {
 		slog.ErrorContext(ctx, "Error resolving package", "error", err)
-		os.Exit(1)
+		return err
 	}
 
+	ctx = log.ContextWithAttrs(ctx,
+		slog.String("name", pkg.Name()),
+		slog.String("version", pkg.Version()),
+	)
+
+	slog.InfoContext(ctx, "Processing resolved package", "package_path", *localPkg)
 	resultStores := makeResultStores()
 
 	if runMode[analysis.Static] {
@@ -240,5 +266,19 @@ func main() {
 	if runMode[analysis.Dynamic] {
 		slog.InfoContext(ctx, "Starting dynamic analysis")
 		dynamicAnalysis(ctx, pkg, &resultStores)
+	}
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		if errors.As(err, &usageError{}) {
+			fmt.Fprintf(os.Stderr, "Usage error: %v\n", err)
+			os.Exit(2)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }

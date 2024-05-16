@@ -1,13 +1,14 @@
 package parsing
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
 
 	"github.com/khulnasoft-lab/package-analysis/internal/staticanalysis/externalcmd"
-	"github.com/khulnasoft-lab/package-analysis/internal/staticanalysis/token"
+	"github.com/khulnasoft-lab/package-analysis/pkg/api/staticanalysis/token"
 )
 
 type jsTestCase struct {
@@ -62,13 +63,11 @@ function test() {
 				{"String", "string", "hello'7'", `'hello\'7\''`, false, token.Position{9, 20}},
 				{"String", "string", "hello", `"hello"`, false, token.Position{10, 20}},
 				{"String", "string", "8", `"8"`, false, token.Position{10, 30}},
-				{"StringTemplate", "string", "hello9", `hello9`, false, token.Position{11, 21}},
-				{"StringTemplate", "string", "hello\"'", `hello"'`, false, token.Position{12, 22}},
-				{"StringTemplate", "string", "\"'", `"'`, false, token.Position{12, 34}},
+				{"StringTemplate", "string", "hello9", "`hello9`", false, token.Position{11, 20}},
+				{"StringTemplate", "string", "hello\"'${}\"'", "`hello\"'${}\"'`", false, token.Position{12, 21}},
 				{"Numeric", "float64", 10.0, "10", false, token.Position{12, 31}},
-				{"StringTemplate", "string", "hello\n//\"'11\"'", `hello` + "\n" + `//"'11"'`, false, token.Position{13, 19}},
-				{"StringTemplate", "string", "hello\"'", `hello"'`, false, token.Position{15, 19}},
-				{"StringTemplate", "string", "\"'", `"'`, false, token.Position{15, 38}},
+				{"StringTemplate", "string", "hello\n//\"'11\"'", "`hello\n//\"'11\"'`", false, token.Position{13, 18}},
+				{"StringTemplate", "string", "hello\"'${}\"'", "`hello\"'${}\"'`", false, token.Position{15, 18}},
 				{"Numeric", "float64", 5.6, "5.6", false, token.Position{15, 28}},
 				{"Numeric", "float64", 6.4, "6.4", false, token.Position{15, 34}},
 			},
@@ -372,19 +371,41 @@ a = w w;
 		},
 		printJSON: false,
 	},
+	{
+		name: "more string templates",
+		inputJS: "console.log(`the operation ${1} \\u2297 ${2} equals ${5}`);\n" +
+			"console.log(`\\u{54}\\u0065\\x78t`);",
+		want: singleParseData{
+			ValidInput: true,
+			Identifiers: []parsedIdentifier{
+				{token.Member, "log", token.Position{1, 8}},
+				{token.Member, "log", token.Position{2, 8}},
+			},
+			Literals: []parsedLiteral[any]{
+				{"StringTemplate", "string", "the operation ${} ⊗ ${} equals ${}",
+					"`the operation ${} \\u2297 ${} equals ${}`", false, token.Position{1, 12}},
+				{"Numeric", "float64", 1.0, "1", false, token.Position{1, 29}},
+				{"Numeric", "float64", 2.0, "2", false, token.Position{1, 41}},
+				{"Numeric", "float64", 5.0, "5", false, token.Position{1, 53}},
+				{"StringTemplate", "string", "Text", "`\\u{54}\\u0065\\x78t`", false, token.Position{2, 12}},
+			},
+		},
+
+		printJSON: false,
+	},
 }
 
 func TestParseJS(t *testing.T) {
 	const printAllJSON = false
 
-	jsParserConfig, err := InitParser(t.TempDir())
+	jsParserConfig, err := InitParser(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 
 	for _, tt := range jsTestCases {
 		t.Run(tt.name, func(t *testing.T) {
-			result, rawOutput, err := parseJS(jsParserConfig, externalcmd.StringInput(tt.inputJS))
+			result, rawOutput, err := parseJS(context.Background(), jsParserConfig, externalcmd.StringInput(tt.inputJS))
 			got := result["stdin"]
 			if err != nil {
 				t.Errorf("parseJS() error = %v", err)

@@ -1,7 +1,7 @@
 # This Makefile contains commands for building the example custom sandbox and syncing it to the local container cache
 
 # Registry for Docker images built and used by package analysis
-REGISTRY := ghcr.io/khulnasoft-lab
+REGISTRY := gcr.io/ossf
 IMAGE_NAME := dynamic-analysis-custom
 
 # Build the sandbox

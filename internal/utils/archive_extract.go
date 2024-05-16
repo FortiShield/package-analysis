@@ -5,17 +5,16 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/khulnasoft-lab/package-analysis/internal/log"
 )
 
-// ExtractTarGzFile extracts a .tar.gz / .tgz file located at tgzPath,
+// ExtractArchiveFile extracts a .tar.gz / .tgz file located at archivePath,
 // using outputDir as the root of the extracted files.
-func ExtractTarGzFile(tgzPath string, outputDir string) error {
-	f, err := os.Open(tgzPath)
+func ExtractArchiveFile(archivePath string, outputDir string) error {
+	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
@@ -34,7 +33,7 @@ func processGzipFile(gzFile *os.File, process func(io.Reader) error) error {
 
 	defer func() {
 		if closeErr := unzippedBytes.Close(); closeErr != nil {
-			log.Error("failed to close gzip reader", "error", closeErr)
+			slog.Error("failed to close gzip reader", "error", closeErr)
 		}
 	}()
 

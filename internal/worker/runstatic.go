@@ -14,11 +14,11 @@ import (
 	"github.com/khulnasoft-lab/package-analysis/internal/sandbox"
 	"github.com/khulnasoft-lab/package-analysis/internal/staticanalysis"
 	"github.com/khulnasoft-lab/package-analysis/internal/utils"
-	"github.com/khulnasoft-lab/package-analysis/pkg/api/analysisrun"
+	api "github.com/khulnasoft-lab/package-analysis/pkg/api/staticanalysis"
 )
 
 // defaultStaticAnalysisImage is the default Docker image for the static analysis sandbox.
-const defaultStaticAnalysisImage = "ghcr.io/khulnasoft-lab/static-analysis"
+const defaultStaticAnalysisImage = "gcr.io/ossf/static-analysis"
 
 // staticAnalyzeBinary is the absolute path to the compiled staticanalyze.go binary
 // inside the static analysis sandbox (see sandboxes/staticanalysis/Dockerfile).
@@ -33,7 +33,7 @@ const resultsJSONFile = "/results.json"
 //
 // To run all available static analyses, pass staticanalysis.All as tasks.
 // Use sbOpts to customise sandbox behaviour.
-func RunStaticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, sbOpts []sandbox.Option, tasks ...staticanalysis.Task) (analysisrun.StaticAnalysisResults, analysis.Status, error) {
+func RunStaticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, sbOpts []sandbox.Option, tasks ...staticanalysis.Task) (api.SandboxData, analysis.Status, error) {
 	ctx = log.ContextWithAttrs(ctx, slog.String("mode", "static"))
 
 	slog.InfoContext(ctx, "Running static analysis", "tasks", tasks)
@@ -55,23 +55,25 @@ func RunStaticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, sbOpts []sandbo
 	}
 
 	// create the results JSON file as an empty file, so it can be mounted into the container
-	resultsFile, err := os.OpenFile(resultsJSONFile, os.O_RDONLY|os.O_CREATE, 0o644)
+	resultsFile, err := os.Create(resultsJSONFile)
 	if err != nil {
 		return nil, "", fmt.Errorf("could not create results JSON file: %w", err)
 	}
 	_ = resultsFile.Close()
 
 	// for saving static analysis results inside the sandbox
-	sbOpts = append(sbOpts, sandbox.Volume(resultsJSONFile, resultsJSONFile))
+	sbOpts = append(sbOpts,
+		sandbox.Volume(resultsJSONFile, resultsJSONFile),
+		sandbox.SetEnv("LOGGER_ENV", log.DefaultLoggingEnv().String()))
 
 	sb := sandbox.New(sbOpts...)
 	defer func() {
-		if err := sb.Clean(); err != nil {
+		if err := sb.Clean(ctx); err != nil {
 			slog.ErrorContext(ctx, "Error cleaning up sandbox", "error", err)
 		}
 	}()
 
-	runResult, err := sb.Run(staticAnalyzeBinary, args...)
+	runResult, err := sb.Run(ctx, staticAnalyzeBinary, args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("sandbox failed (%w)", err)
 	}
@@ -87,7 +89,7 @@ func RunStaticAnalysis(ctx context.Context, pkg *pkgmanager.Pkg, sbOpts []sandbo
 
 	totalTime := time.Since(startTime)
 	slog.InfoContext(ctx, "Static analysis finished",
-		log.LabelAttr("result_status", string(status)),
+		log.Label("result_status", string(status)),
 		"static_analysis_duration", totalTime,
 	)
 

@@ -1,4 +1,4 @@
-FROM golang:1.22.0@sha256:ef61a20960397f4d44b0e729298bf02327ca94f1519239ddc6d91689615b1367 as build
+FROM golang:1.21.0@sha256:12359f96c43077803959dab88ce60c87cd2543f3b907bf54a34a5104270f404f as build
 RUN apt-get update && apt-get install -y libpcap-dev
 WORKDIR /src
 
@@ -8,9 +8,9 @@ COPY ./go.sum ./
 RUN go mod download
 
 COPY . ./
-RUN go build -o analyze cmd/analyze/main.go && go build -o worker cmd/worker/main.go
+RUN go build -o analyze ./cmd/analyze && go build -o worker ./cmd/worker
 
-FROM ubuntu:22.04@sha256:e6173d4dc55e76b87c4af8db8821b1feae4146dd47341e4d431118c7dd060a74
+FROM ubuntu:22.04@sha256:42ba2dfce475de1113d55602d40af18415897167d47c2045ec7b6d9746ff148f
 
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update && apt-get upgrade -y && \
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get upgrade -y && \
 # Install gVisor.
 RUN mkdir -m 0700 -p /etc/apt/keyrings && \
     curl -fsSL https://gvisor.dev/archive.key -o /etc/apt/keyrings/gvisor.key && \
-    echo "deb [signed-by=/etc/apt/keyrings/gvisor.key] https://storage.googleapis.com/gvisor/releases 20220425 main" > /etc/apt/sources.list.d/gvisor.list && \
+    echo "deb [signed-by=/etc/apt/keyrings/gvisor.key] https://storage.googleapis.com/gvisor/releases 20240212 main" > /etc/apt/sources.list.d/gvisor.list && \
     apt-get update && apt-get install -y runsc
 
 COPY --from=build /src/analyze /usr/local/bin/analyze

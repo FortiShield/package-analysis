@@ -19,7 +19,7 @@ go install github.com/google/ko@latest
 Then run
 
 ```bash
-KO_DOCKER_REPO=ghcr.io/khulnasoft-lab ko resolve -f deployment.yaml | kubectl apply -f -
+KO_DOCKER_REPO=gcr.io/ossf ko resolve -f deployment.yaml | kubectl apply -f -
 ```
 
 ## Design

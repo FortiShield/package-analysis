@@ -73,8 +73,9 @@ func getPyPIArchiveURL(pkgName, version string) (string, error) {
 			return url.URL, nil
 		}
 	}
-	// can't find source tarball
-	return "", fmt.Errorf("source tarball not found for %s, version %s", pkgName, version)
+
+	// Return an empty string and no error if we can't find an archive URL.
+	return "", nil
 }
 
 var pypiPkgManager = PkgManager{
@@ -82,5 +83,5 @@ var pypiPkgManager = PkgManager{
 	latestVersion:   getPyPILatest,
 	archiveURL:      getPyPIArchiveURL,
 	archiveFilename: defaultArchiveFilename,
-	extractArchive:  utils.ExtractTarGzFile,
+	extractArchive:  utils.ExtractArchiveFile,
 }

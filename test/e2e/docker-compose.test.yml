@@ -1,7 +1,7 @@
 version: "3"
 services:
   analysis:
-    image: ghcr.io/khulnasoft-lab/analysis:test
+    image: gcr.io/ossf/analysis:test
     environment:
       OSSF_SANDBOX_NOPULL: "true"
     # for mounting local sandbox images inside container
@@ -9,4 +9,4 @@ services:
       - "/var/lib/containers:/var/lib/containers"
 
   scheduler:
-    image: ghcr.io/khulnasoft-lab/scheduler:test
+    image: gcr.io/ossf/scheduler:test

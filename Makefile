@@ -6,7 +6,7 @@ PREFIX := $(abspath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 SANDBOX_DIR := $(PREFIX)/sandboxes
 
 # Registry for Docker images built and used by package analysis
-REGISTRY := ghcr.io/khulnasoft-lab
+REGISTRY := gcr.io/ossf
 
 # If RELEASE_TAG environment variable is not specified, images will be tagged
 # as 'latest' which is equivalent to just tagging without specifying a version
@@ -19,12 +19,19 @@ else
 	BUILD_ARG=--build-arg=SANDBOX_IMAGE_TAG=$(TAG)
 endif
 
+.PHONY: help
+help:  ## Display this help
+	@awk 'BEGIN {FS = ":.*##"; \
+			printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9\/-]+:.*?##/ \
+			{ printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 } \
+			/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
 
 #
 # This recipe builds and pushes images for production. Note: RELEASE_TAG must be set
 #
 .PHONY: cloudbuild
-cloudbuild: require_release_tag push_prod_images
+cloudbuild: require_release_tag push ## Build and push images
 
 .PHONY: require_release_tag
 require_release_tag:
@@ -36,78 +43,80 @@ endif
 #
 # These recipes build all the top-level docker images
 
-build_%_image:
+build/image/%:
 	@# if TAG is 'latest', the two -t arguments are equivalent and do the same thing
 	docker build $(BUILD_ARG) -t ${REGISTRY}/$(IMAGE_NAME) -t ${REGISTRY}/$(IMAGE_NAME):$(TAG) -f $(DOCKERFILE) $(DIR)
 
 #
 # These recipes build the sandbox images.
 #
-build_%_sandbox:
+build/sandbox/%:
 	@# if TAG is 'latest', the two -t arguments are equivalent and do the same thing
 	docker build -t ${REGISTRY}/$(IMAGE_NAME) -t ${REGISTRY}/$(IMAGE_NAME):$(TAG) -f $(DOCKERFILE) $(DIR)
 
-build_analysis_image: DIR=$(PREFIX)
-build_analysis_image: DOCKERFILE=$(PREFIX)/cmd/analyze/Dockerfile
-build_analysis_image: IMAGE_NAME=analysis
+build/image/analysis: DIR=$(PREFIX)
+build/image/analysis: DOCKERFILE=$(PREFIX)/cmd/analyze/Dockerfile
+build/image/analysis: IMAGE_NAME=analysis
 
-build_scheduler_image: DIR=$(PREFIX)
-build_scheduler_image: DOCKERFILE=$(PREFIX)/cmd/scheduler/Dockerfile
-build_scheduler_image: IMAGE_NAME=scheduler
+build/image/scheduler: DIR=$(PREFIX)
+build/image/scheduler: DOCKERFILE=$(PREFIX)/cmd/scheduler/Dockerfile
+build/image/scheduler: IMAGE_NAME=scheduler
 
-build_static_analysis_sandbox: DIR=$(PREFIX)
-build_static_analysis_sandbox: DOCKERFILE=$(SANDBOX_DIR)/staticanalysis/Dockerfile
-build_static_analysis_sandbox: IMAGE_NAME=static-analysis
+build/sandbox/static_analysis: DIR=$(PREFIX)
+build/sandbox/static_analysis: DOCKERFILE=$(SANDBOX_DIR)/staticanalysis/Dockerfile
+build/sandbox/static_analysis: IMAGE_NAME=static-analysis
 
-build_dynamic_analysis_sandbox: DIR=$(SANDBOX_DIR)/dynamicanalysis
-build_dynamic_analysis_sandbox: DOCKERFILE=$(SANDBOX_DIR)/dynamicanalysis/Dockerfile
-build_dynamic_analysis_sandbox: IMAGE_NAME=dynamic-analysis
+build/sandbox/dynamic_analysis: DIR=$(SANDBOX_DIR)/dynamicanalysis
+build/sandbox/dynamic_analysis: DOCKERFILE=$(SANDBOX_DIR)/dynamicanalysis/Dockerfile
+build/sandbox/dynamic_analysis: IMAGE_NAME=dynamic-analysis
 
-.PHONY: build_prod_images
-build_prod_images: build_dynamic_analysis_sandbox build_static_analysis_sandbox build_analysis_image build_scheduler_image
+.PHONY: build
+build: build/sandbox/dynamic_analysis build/sandbox/static_analysis build/image/analysis build/image/scheduler ## Build images
 
 #
 # Builds then pushes analysis and sandbox images
 #
 
-push_%:
+push/image/%:
 	docker push --all-tags ${REGISTRY}/$(IMAGE_NAME)
 
-push_analysis_image: IMAGE_NAME=analysis
-push_analysis_image: build_analysis_image
+push/sandbox/%:
+	docker push --all-tags ${REGISTRY}/$(IMAGE_NAME)
 
-push_scheduler_image: IMAGE_NAME=scheduler
-push_scheduler_image: build_scheduler_image
+push/image/analysis: IMAGE_NAME=analysis
+push/image/analysis: build/image/analysis
 
-push_dynamic_analysis_sandbox: IMAGE_NAME=dynamic-analysis
-push_dynamic_analysis_sandbox: build_dynamic_analysis_sandbox
+push/image/scheduler: IMAGE_NAME=scheduler
+push/image/scheduler: build/image/scheduler
 
-push_static_analysis_sandbox: IMAGE_NAME=static-analysis
-push_static_analysis_sandbox: build_static_analysis_sandbox
+push/sandbox/dynamic_analysis: IMAGE_NAME=dynamic-analysis
+push/sandbox/dynamic_analysis: build/sandbox/dynamic_analysis
 
-.PHONY: push_prod_sandboxes
-push_prod_sandboxes: push_dynamic_analysis_sandbox push_static_analysis_sandbox
+push/sandbox/static_analysis: IMAGE_NAME=static-analysis
+push/sandbox/static_analysis: build/sandbox/static_analysis
 
-.PHONY: push_prod_images
-push_prod_images: push_prod_sandboxes push_analysis_image push_scheduler_image
+.PHONY: push/prod_sandboxes
+push/prod_sandboxes: push/sandbox/dynamic_analysis push/sandbox/static_analysis
 
+.PHONY: push
+push: push/prod_sandboxes push/image/analysis push/image/scheduler ## Push production images
 
 #
 # These update (sync) locally built sandbox images from Docker to
 # podman. In order to use locally built sandbox images for analysis,
 # pass '-nopull' to scripts/run_analysis.sh
 #
-sync_%_sandbox:
-	sudo buildah pull docker-daemon:${REGISTRY}/${IMAGE_NAME}:$(TAG)
+sync/sandbox/%:
+	docker save ${REGISTRY}/${IMAGE_NAME}:$(TAG) | sudo podman load
 
-sync_dynamic_analysis_sandbox: IMAGE_NAME=dynamic-analysis
-sync_dynamic_analysis_sandbox: build_dynamic_analysis_sandbox
+sync/sandbox/dynamic_analysis: IMAGE_NAME=dynamic-analysis
+sync/sandbox/dynamic_analysis: build/sandbox/dynamic_analysis
 
-sync_static_analysis_sandbox: IMAGE_NAME=static-analysis
-sync_static_analysis_sandbox: build_static_analysis_sandbox
+sync/sandbox/static_analysis: IMAGE_NAME=static-analysis
+sync/sandbox/static_analysis: build/sandbox/static_analysis
 
-.PHONY: sync_prod_sandboxes
-sync_prod_sandboxes: sync_dynamic_analysis_sandbox sync_static_analysis_sandbox
+.PHONY: sync
+sync: sync/sandbox/dynamic_analysis sync/sandbox/static_analysis ## Sync prod sandboxes
 
 
 #
@@ -129,11 +138,16 @@ run:
 
 E2E_TEST_COMPOSE_ARGS := -p pa-e2e-testing -f ./configs/e2e/docker-compose.yml -f ./test/e2e/docker-compose.test.yml
 
+.PHONY: e2e_test_build
+e2e_test_build: build_e2e_test_images
+
 .PHONY: e2e_test_start
 e2e_test_start:
 	docker-compose $(E2E_TEST_COMPOSE_ARGS) up -d
 	@echo
 	@echo "To see analysis results, go to http://localhost:9000/minio/package-analysis"
+	@echo "Username: minio"
+	@echo "Password: minio123"
 	@echo
 	@echo "Remember to run 'make e2e_test_stop' when done!"
 	@sleep 5
@@ -159,6 +173,13 @@ e2e_test_logs_scheduler:
 .PHONY: e2e_test_logs_analysis
 e2e_test_logs_analysis:
 	docker-compose $(E2E_TEST_COMPOSE_ARGS) logs -f analysis
+
+
+.PHONY: build_e2e_test_images
+build_e2e_test_images: TAG=test
+build_e2e_test_images: sync build/image/analysis build/image/scheduler
+
+
 
 .PHONY: test_go
 test_go:
